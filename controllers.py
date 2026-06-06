@@ -19,7 +19,7 @@ class State():
         self.board[move.to_row][move.to_column] = move.piece_moved
         self.log.append(move)
         self.white_turn = not self.white_turn
-        
+
 class Move():
     def __init__(self, from_pos, to_pos, board):
         self.from_row = from_pos[0]

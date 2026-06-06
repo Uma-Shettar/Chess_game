@@ -43,6 +43,9 @@ def main():
                         move = controllers.Move(clicks_list[0], clicks_list[1], s.board)
                         s.play_move(move)
                     selected_position, clicks_list = (), []
+            elif event.type == p.KEYDOWN:
+                if event.key == p.K_u:
+                    s.Undo()
         
         draw_state(screen, s.board, selected_position)
             
@@ -55,7 +58,7 @@ def draw_state(screen, board, selected_position = None):
             if (r + c) % 2 == 0:
                 color = p.Color("white")
             else:
-                color = p.Color("grey")
+                color = p.Color(69, 81, 107)
             p.draw.rect(screen, color, p.Rect(c*square_size, r*square_size, square_size, square_size))
 
             if selected_position == (r, c):
