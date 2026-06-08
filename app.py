@@ -43,7 +43,6 @@ def main():
 
                 if len(clicks_list) == 2:
                     move = controllers.Move(clicks_list[0], clicks_list[1], s.board)
-                    print("move", move)
                     if move in valid_moves:
                         print("play")
                         s.play_move(move)
