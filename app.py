@@ -57,7 +57,7 @@ def main():
         if move_done:
             print("-----------------------\n---------------------------")
             valid_moves = s.get_valid_moves()
-            print("enter", valid_moves)
+            #print("enter", valid_moves)
             move_done = False
 
         possible_moves = []
