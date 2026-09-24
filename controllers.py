@@ -45,8 +45,9 @@ class State():
             elif move.to_column - move.from_column == -2:
                 self.board[move.from_row][move.to_column + 1] = self.board[move.from_row][move.to_column - 2]
                 self.board[move.from_row][move.to_column - 2] = "--"
-        print("Do",move.move_id, "log_size", len(self.castling_log))
-        print("Castling Rights",self.castling_rights.w_oo, self.castling_rights.b_oo, self.castling_rights.w_ooo, self.castling_rights.b_ooo)
+        
+        if move.ispromotion:
+            self.board[move.to_row][move.to_column] = move.piece_moved[0] + "Q"
 
     
     def Undo(self):
@@ -73,8 +74,6 @@ class State():
                 elif move.to_column - move.from_column == -2:
                     self.board[move.from_row][move.to_column - 2] = self.board[move.from_row][move.to_column + 1]
                     self.board[move.from_row][move.to_column + 1] = "--"
-            print("undo",move.move_id, "log_size", len(self.castling_log))
-            print("Castling Rights",self.castling_rights.w_oo, self.castling_rights.b_oo, self.castling_rights.w_ooo, self.castling_rights.b_ooo)
 
 
     def change_castling_rights(self, piece, row, column):
@@ -135,8 +134,25 @@ class State():
         for i in range(len(moves) -1, -1, -1):
             if moves[i].piece_moved[1] == "K":
                 if not moves[i] in king_moves:
-                    print("rem",moves[i].piece_moved, moves[i].from_row,moves[i].from_column,moves[i].to_row,moves[i].to_column)
                     moves.remove(moves[i])
+
+        #pins cant move in a direction that exposes the king to check, so we remove those moves from the list of valid moves but can capture the piece that is pinning the piece to the king
+        if self.white_turn:
+            opponent_color = "B"
+        else:
+            opponent_color = "W"
+        for pin in self.pins:
+            pin_r = pin[0]
+            pin_c = pin[1]
+            pin_dir = (pin[2], pin[3])
+            for i in range(len(moves) -1, -1, -1):
+                if moves[i].from_row == pin_r and moves[i].from_column == pin_c:
+                    move_dir = (moves[i].to_row - moves[i].from_row, moves[i].to_column - moves[i].from_column)
+                    if not (move_dir[0] == pin_dir[0] and move_dir[1] == pin_dir[1]) and not (move_dir[0] == -pin_dir[0] and move_dir[1] == -pin_dir[1]):
+                        if self.board[moves[i].to_row][moves[i].to_column][0] == opponent_color:
+                            pass
+                        else:
+                            moves.remove(moves[i])
         return moves
 
 
@@ -165,8 +181,8 @@ class State():
                 if 0 <= row_position <= 7 and 0 <= column_position <= 7:
                     piece = self.board[row_position][column_position]
                     if piece[0] != opponent_color and piece[0] != "-":
-                        if pin == ():
-                            pin = (row_position, column_position)
+                        if pin == ():# pinposition and info about king direction
+                            pin = (row_position, column_position, d[0], d[1])
                         else:
                             break
                     elif piece[0] == opponent_color:
@@ -326,7 +342,6 @@ class State():
                 self.white_turn = not self.white_turn
                 check,_,_ = self.get_checks()
                 if check :
-                    print('removed',moves[i], moves[i].from_row,moves[i].from_column,moves[i].to_row, moves[i].to_column)
                     moves.remove(moves[i])
                 self.white_turn = not self.white_turn
                 self.Undo()
@@ -376,7 +391,10 @@ class Move():
         self.to_column = to_pos[1]
         self.piece_taken = board[self.to_row][self.to_column]
         self.piece_moved = board[self.from_row][self.from_column]
+        self.ispromotion = False
         self.move_id = 1000*self.from_row + 100*self.from_column + 10*self.to_row + 1*self.to_column
+        if (self.piece_moved == "WP" and self.to_row == 0) or (self.piece_moved == "BP" and self.to_row == 7):
+            self.ispromotion = True 
     
     def __eq__(self, other):
         if isinstance(other, Move):
