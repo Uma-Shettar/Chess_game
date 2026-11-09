@@ -1,5 +1,7 @@
 
-class State():
+# Represents the current chess position and implements its rules.
+class State:
+    # Initializes the starting position and game-state metadata.
     def __init__(self):
         self.board = [
             ["BR", "BN", "BB", "BQ", "BK", "BB", "BN", "BR"],
@@ -19,12 +21,29 @@ class State():
         self.black_king = (0,4)
         self.checks = []
         self.pins = []
+        self.checkmate = False
+        self.draw = False
         self.check = False
         self.castling_rights = Castling(True, True, True, True)
         self.castling_log = [Castling(self.castling_rights.w_oo, self.castling_rights.b_oo, self.castling_rights.w_ooo, self.castling_rights.b_ooo)]
+        self.en_passant_target = None
+        self.en_passant_log = [None]
 
 
     def play_move(self, move):
+        is_en_passant_capture = (
+            move.piece_moved[1] == "P"
+            and abs(move.to_row - move.from_row) == 1
+            and move.to_column != move.from_column
+            and self.board[move.to_row][move.to_column] == "--"
+            and self.en_passant_target == (move.to_row, move.to_column)
+            and self.board[move.from_row][move.to_column] != "--"
+            and self.board[move.from_row][move.to_column][0] != move.piece_moved[0]
+        )
+        move.is_en_passant = bool(move.is_en_passant or is_en_passant_capture)
+        if move.is_en_passant:
+            move.piece_taken = self.board[move.from_row][move.to_column]
+
         self.board[move.from_row][move.from_column] = "--"
         self.board[move.to_row][move.to_column] = move.piece_moved
         self.log.append(move)
@@ -33,6 +52,9 @@ class State():
             self.white_king = (move.to_row, move.to_column)
         if move.piece_moved == "BK":
             self.black_king = (move.to_row, move.to_column)
+
+        if move.is_en_passant:
+            self.board[move.from_row][move.to_column] = "--"
 
         # Castling
         self.change_castling_rights(move.piece_moved, move.from_row, move.from_column)
@@ -45,6 +67,13 @@ class State():
             elif move.to_column - move.from_column == -2:
                 self.board[move.from_row][move.to_column + 1] = self.board[move.from_row][move.to_column - 2]
                 self.board[move.from_row][move.to_column - 2] = "--"
+
+        if move.piece_moved[1] == "P" and abs(move.to_row - move.from_row) == 2:
+            direction = 1 if move.piece_moved[0] == "B" else -1
+            self.en_passant_target = (move.from_row + direction, move.from_column)
+        else:
+            self.en_passant_target = None
+        self.en_passant_log.append(self.en_passant_target)
         
         if move.ispromotion:
             self.board[move.to_row][move.to_column] = move.piece_moved[0] + "Q"
@@ -54,7 +83,11 @@ class State():
         if len(self.log) != 0:
             move = self.log.pop()
             self.board[move.from_row][move.from_column] = move.piece_moved
-            self.board[move.to_row][move.to_column] = move.piece_taken
+            if move.is_en_passant:
+                self.board[move.to_row][move.to_column] = "--"
+                self.board[move.from_row][move.to_column] = move.piece_taken
+            else:
+                self.board[move.to_row][move.to_column] = move.piece_taken
             self.white_turn = not self.white_turn
 
             if move.piece_moved == "WK":
@@ -65,6 +98,8 @@ class State():
             self.castling_log.pop()
             rights = self.castling_log[-1]
             self.castling_rights = Castling(rights.w_oo,rights.b_oo,rights.w_ooo,rights.b_ooo)
+            self.en_passant_log.pop()
+            self.en_passant_target = self.en_passant_log[-1]
                 
             
             if move.piece_moved[1] == "K":
@@ -74,6 +109,9 @@ class State():
                 elif move.to_column - move.from_column == -2:
                     self.board[move.from_row][move.to_column - 2] = self.board[move.from_row][move.to_column + 1]
                     self.board[move.from_row][move.to_column + 1] = "--"
+            
+            if self.checkmate:
+                self.checkmate = False
 
 
     def change_castling_rights(self, piece, row, column):
@@ -96,6 +134,7 @@ class State():
                 elif column == 7:
                     self.castling_rights.b_oo = False
         
+    # Returns legal moves after accounting for checks, pins, and draws.
     def get_valid_moves(self):  # check validity considering checks
         moves = []
         self.check, self.pins, self.checks = self.get_checks()
@@ -141,21 +180,51 @@ class State():
             opponent_color = "B"
         else:
             opponent_color = "W"
+
         for pin in self.pins:
             pin_r = pin[0]
             pin_c = pin[1]
             pin_dir = (pin[2], pin[3])
-            for i in range(len(moves) -1, -1, -1):
+
+            for i in range(len(moves) - 1, -1, -1):
                 if moves[i].from_row == pin_r and moves[i].from_column == pin_c:
-                    move_dir = (moves[i].to_row - moves[i].from_row, moves[i].to_column - moves[i].from_column)
-                    if not (move_dir[0] == pin_dir[0] and move_dir[1] == pin_dir[1]) and not (move_dir[0] == -pin_dir[0] and move_dir[1] == -pin_dir[1]):
+
+                    move_dir = (
+                        moves[i].to_row - moves[i].from_row,
+                        moves[i].to_column - moves[i].from_column
+                    )
+
+                    # Normalize movement to a direction
+                    move_direction = (
+                        0 if move_dir[0] == 0 else move_dir[0] // abs(move_dir[0]),
+                        0 if move_dir[1] == 0 else move_dir[1] // abs(move_dir[1])
+                    )
+
+                    if not (
+                        move_direction == pin_dir
+                        or move_direction == (-pin_dir[0], -pin_dir[1])
+                    ):
                         if self.board[moves[i].to_row][moves[i].to_column][0] == opponent_color:
                             pass
                         else:
                             moves.remove(moves[i])
+        #checkmate condition
+        if len(moves) == 0 and self.check:
+            self.checkmate = True
+
+        #draw condition if only kings are left on the board
+        if self.checkmate == False:
+            pieces = []
+            for r in range(8):
+                for c in range(8):
+                    if self.board[r][c] != "--":
+                        pieces.append(self.board[r][c])
+            if len(pieces) == 2 or (len(pieces) == 3 and ("WN" in pieces or "BN" in pieces) or (len(pieces) == 4 and ("WB" in pieces and "BB" in pieces))) or len(moves) == 0:
+                self.draw = True
+
         return moves
 
-
+    # Finds attacks on the current king and pieces pinned to it.
     def get_checks(self):
         checks = []
         pins = []
@@ -229,25 +298,35 @@ class State():
         if self.white_turn and self.board[r][c][0] == 'W':
             if self.board[r-1][c] == "--":
                 moves.append(Move((r,c),(r-1,c),self.board))
-                if self.board[r-2][c] == "--" and r == 6:
+                if r==6 and self.board[r-2][c] == "--":
                     moves.append(Move((r,c),(r-2,c),self.board))
             if c-1>=0:
                 if self.board[r-1][c-1][0] == "B":
                     moves.append(Move((r,c),(r-1,c-1),self.board))
+                elif self.en_passant_target == (r-1, c-1):
+                    moves.append(Move((r,c),(r-1,c-1),self.board, is_en_passant=True))
             if c+1<=7:
                 if self.board[r-1][c+1][0] == "B":
                     moves.append(Move((r,c),(r-1,c+1),self.board))
+                elif self.en_passant_target == (r-1, c+1):
+                    moves.append(Move((r,c),(r-1,c+1),self.board, is_en_passant=True))
+
+        
         elif not self.white_turn and self.board[r][c][0] == 'B':
             if self.board[r+1][c] == "--":
                 moves.append(Move((r,c),(r+1,c),self.board))
-                if self.board[r+2][c] == "--" and r == 1:
+                if r==1 and self.board[r+2][c] == "--":
                     moves.append(Move((r,c),(r+2,c),self.board))
             if c-1>=0:
                 if self.board[r+1][c-1][0] == "W":
                     moves.append(Move((r,c),(r+1,c-1),self.board))
+                elif self.en_passant_target == (r+1, c-1):
+                    moves.append(Move((r,c),(r+1,c-1),self.board, is_en_passant=True))
             if c+1<=7:
                 if self.board[r+1][c+1][0] == "W":
                     moves.append(Move((r,c),(r+1,c+1),self.board))
+                elif self.en_passant_target == (r+1, c+1):
+                    moves.append(Move((r,c),(r+1,c+1),self.board, is_en_passant=True))
         return moves
         
 
@@ -384,12 +463,16 @@ class State():
         return []
 
 class Move():
-    def __init__(self, from_pos, to_pos, board):
+    def __init__(self, from_pos, to_pos, board, is_en_passant=False):
         self.from_row = from_pos[0]
         self.from_column = from_pos[1]
         self.to_row = to_pos[0]
         self.to_column = to_pos[1]
-        self.piece_taken = board[self.to_row][self.to_column]
+        self.is_en_passant = is_en_passant
+        if self.is_en_passant:
+            self.piece_taken = board[self.from_row][self.to_column]
+        else:
+            self.piece_taken = board[self.to_row][self.to_column]
         self.piece_moved = board[self.from_row][self.from_column]
         self.ispromotion = False
         self.move_id = 1000*self.from_row + 100*self.from_column + 10*self.to_row + 1*self.to_column

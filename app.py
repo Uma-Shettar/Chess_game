@@ -1,5 +1,9 @@
-import controllers
+
 import pygame as p
+
+import auto_move
+import controllers
+from RL_AI_move import ChessAI
 
 height = width = 512
 square_size = 512//8
@@ -16,6 +20,10 @@ def main():
     p.init()
     screen = p.display.set_mode((width, height))
     s = controllers.State()
+    ai = ChessAI(
+        model_path="chess_model.pth",
+        simulations=200
+    )
     valid_moves = s.get_valid_moves()
     print(valid_moves, len(valid_moves))
     move_done = False
@@ -25,39 +33,65 @@ def main():
     active = True
     selected_position = ()
     clicks_list = []
+    game_over = False
+    white_player = True
+    black_player = True
 
     while active:
+        player = (white_player and s.white_turn) or (black_player and not s.white_turn)
         for event in p.event.get():
             if event.type == p.QUIT:
                 active = False
-            elif event.type == p.MOUSEBUTTONDOWN:
-                click_coordinates = p.mouse.get_pos()
-                column = click_coordinates[0]//square_size
-                row = click_coordinates[1]//square_size
-                if selected_position != (row, column):
-                    selected_position = (row, column)
-                    clicks_list.append(selected_position)
-                else:
-                    selected_position = ()
-                    clicks_list = []
 
-                if len(clicks_list) == 2:
-                    move = controllers.Move(clicks_list[0], clicks_list[1], s.board)
-                    if move in valid_moves:
-                        print("play")
-                        s.play_move(move)
-                        move_done = True
-                        selected_position, clicks_list = (), []
+
+            elif event.type == p.MOUSEBUTTONDOWN:
+                if not game_over and player:
+                    click_coordinates = p.mouse.get_pos()
+                    column = click_coordinates[0]//square_size
+                    row = click_coordinates[1]//square_size
+                    if selected_position != (row, column):
+                        selected_position = (row, column)
+                        clicks_list.append(selected_position)
                     else:
-                        clicks_list = [selected_position]
+                        selected_position = ()
+                        clicks_list = []
+
+                    if len(clicks_list) == 2:
+                        move = controllers.Move(clicks_list[0], clicks_list[1], s.board)
+                        if move in valid_moves:
+                            s.play_move(move)
+                            move_done = True
+                            selected_position, clicks_list = (), []
+                        else:
+                            clicks_list = [selected_position]
+
+
             elif event.type == p.KEYDOWN:
                 if event.key == p.K_u:
                     s.Undo()
                     move_done = True
+                    game_over = False
+                if event.key == p.K_r:
+                    s = controllers.State()
+                    valid_moves = s.get_valid_moves()
+                    selected_position, clicks_list = (), []
+                    move_done = False
+                    game_over = False
+
+        #automatic move
+        if not game_over and not player:
+            #move,_ = auto_move.Best_move(s, valid_moves)
+            move = ai.predict(s)
+            if move is None:
+                move = auto_move.get_random_move(valid_moves)
+            # wait for 1 second before making the move
+            # if not white_player and not black_player:
+            #     p.time.wait(1000)
+            s.play_move(move)
+            move_done = True
+
         if move_done:
-            print("-----------------------\n---------------------------")
             valid_moves = s.get_valid_moves()
-            #print("enter", valid_moves)
             move_done = False
 
         possible_moves = []
@@ -71,6 +105,17 @@ def main():
             #print(possible_moves)
 
         draw_state(screen, s.board, selected_position, possible_moves)
+
+        if s.checkmate:
+            game_over = True
+            if s.white_turn:
+                draw_text(screen, "Black wins by checkmate")
+            else:
+                draw_text(screen, "White wins by checkmate")
+        
+        if s.draw:
+            game_over = True
+            draw_text(screen, "Draw! Only kings left on the board")
             
         clock.tick(fps)
         p.display.flip()
@@ -101,6 +146,14 @@ def draw_state(screen, board, selected_position = None, possible_moves = None):
             piece = board[r][c]
             if piece != "--":
                 screen.blit(images[piece], p.Rect(c*square_size + 6, r*square_size + 6, square_size, square_size))
+
+def draw_text(screen, text):
+    font = p.font.SysFont("Arial", 32, True, False)
+    text_object = font.render(text, 0, p.Color("black"))
+    text_location = p.Rect(0, 0, width, height).move(width/2 - text_object.get_width()/2, height/2 - text_object.get_height()/2)
+    screen.blit(text_object, text_location)
+    text_object = font.render(text, 0, p.Color("red"))
+    screen.blit(text_object, text_location.move(2, 2))
 
 if __name__ == "__main__":
     main()
